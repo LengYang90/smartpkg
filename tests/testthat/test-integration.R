@@ -548,3 +548,32 @@ test_that("edge: concurrent probe with empty list", {
   expect_true(is.data.frame(results))
   expect_equal(nrow(results), 0)
 })
+
+# ── 8. CRAN → Bioc 自动 fallback 测试 ──────────────────────────────────
+
+test_that("CRAN→Bioc fallback: known Bioc package not on CRAN", {
+  # clusterProfiler 是 Bioc 包，BiocManager 应能查到
+  skip_if_not_installed("BiocManager")
+  avail <- BiocManager::available("clusterProfiler")
+  expect_true(length(avail) > 0)
+  expect_match(avail, "clusterProfiler")
+})
+
+test_that("CRAN→Bioc fallback: BiocManager knows CRAN packages too", {
+  # BiocManager 也索引 CRAN 包，这是正常行为
+  skip_if_not_installed("BiocManager")
+  avail <- BiocManager::available("dplyr")
+  expect_true(length(avail) > 0)
+})
+
+test_that("smart_install dry_run still reports CRAN for plain names", {
+  # dry_run 时不检查 availability，直接报告 CRAN
+  write_cache(list(
+    mirror_url = "https://cloud.r-project.org",
+    timestamp = Sys.time(),
+    all_mirrors_tested = 10, candidate_count = 3
+  ))
+  result <- smart_install("clusterProfiler", dry_run = TRUE)
+  expect_equal(result$source, "cran")
+  expect_equal(result$backend, "install.packages")
+})
