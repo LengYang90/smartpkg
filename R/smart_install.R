@@ -23,25 +23,27 @@ smart_install <- function(pkg, ..., dry_run = FALSE) {
   info <- detect_pkg_source(pkg)
   args <- list(...)
 
-  # 纯包名 + 实际安装：CRAN → Bioc 自动 fallback
-  # 通过 available.packages() 从已探测到的最快镜像检查包是否存在
-  # 注意：install.packages() 对不存在的包只发 warning 不抛 error，无法用 tryCatch
+  # 纯包名 + 实际安装：自动判断 CRAN 还是 Bioconductor
+  # 通过 available.packages() 从最快镜像查询 CRAN 包索引
+  # 如果 CRAN 上不存在，自动 fallback 到 Bioconductor
   if (info$source == "cran" && !dry_run) {
     mirror <- detect_fastest_mirror()
 
-    # 从最快镜像查询 PACKAGES 索引（第一次下载缓存后，后续调用秒回）
-    on_cran <- pkg_exists_on_cran(info$pkg, mirror)
+    # 从最快镜像检查包是否在 CRAN 上
+    on_cran <- tryCatch({
+      contrib <- utils::contrib.url(mirror)
+      info$pkg %in% rownames(utils::available.packages(contriburl = contrib))
+    }, error = function(e) NA)
 
-    if (!on_cran) {
-      # CRAN 上不存在 → 查询 Bioconductor
+    # 不在 CRAN 上 → 查询 Bioconductor
+    if (!isTRUE(on_cran)) {
       if (requireNamespace("BiocManager", quietly = TRUE)) {
-        bioc_avail <- BiocManager::available(info$pkg)
-        if (length(bioc_avail) > 0) {
+        if (length(BiocManager::available(info$pkg)) > 0) {
           message("Not found on CRAN, installing from Bioconductor instead...")
           return(invisible(install_bioc(info$pkg, args, dry_run = FALSE)))
         }
       }
-      # 两个源都没有 → 让 install.packages 给出标准错误提示
+      # 查询失败或两个源都没有 → 让 install.packages 处理
     }
 
     result <- install_cran(info$pkg, args, dry_run = FALSE)
@@ -153,27 +155,4 @@ install_local <- function(pkg, args, dry_run) {
     list(pkgs = pkg, repos = NULL, type = "source"),
     args
   ))
-}
-
-# ── CRAN 包存在性快速检查 ────────────────────────────────────────────────
-
-#' 检查包是否在 CRAN 上当前可用
-#'
-#' 从指定的（最快）CRAN 镜像查询 PACKAGES 索引。
-#' R 内部会缓存 available.packages() 的结果，
-#' 同一会话中后续调用是即时的。
-#'
-#' @param pkg 包名
-#' @param mirror CRAN 镜像 URL
-#' @return TRUE 表示包当前在 CRAN 上，FALSE 表示不在
-pkg_exists_on_cran <- function(pkg, mirror) {
-  if (is.null(mirror) || is.na(mirror)) return(FALSE)
-  tryCatch({
-    contrib <- utils::contrib.url(mirror)
-    avail <- utils::available.packages(contriburl = contrib)
-    pkg %in% rownames(avail)
-  }, error = function(e) {
-    # 查询失败（网络异常等）→ 让 install.packages 自行判断
-    TRUE
-  })
 }
