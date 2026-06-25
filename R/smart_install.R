@@ -110,8 +110,13 @@ install_bioc <- function(pkg, args, dry_run) {
     options(repos = old_repos)
     options(BioC_mirror = old_bioc_mirror)
   })
-  options(repos = c(CRAN = cran_mirror))
+
+  # 先设 Bioc 镜像，再通过 BiocManager::repositories() 构建完整仓库列表
+  # 这样 Bioc 仓库走最快镜像，而不是被 options(repos = c(CRAN=...)) 覆盖
   options(BioC_mirror = bioc_mirror)
+  repos <- BiocManager::repositories()
+  repos["CRAN"] <- cran_mirror     # 只替换 CRAN 条目，保留 Bioc 各子仓库
+  options(repos = repos)
 
   do.call(BiocManager::install, c(list(pkg), args))
 }
