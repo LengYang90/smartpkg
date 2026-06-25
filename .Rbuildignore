@@ -3,3 +3,6 @@
 ^docs$
 ^.*\.Rproj$
 ^\.Rproj\.user$
+^\.\.Rcheck$
+^smartpkg\.Rcheck$
+^smartpkg_.*\.tar\.gz$
