@@ -1,0 +1,21 @@
+Package: smartpkg
+Title: Smart R Package Installer with Automatic Fastest Mirror Selection
+Version: 0.1.0
+Authors@R: person("Your", "Name", role = c("aut", "cre"), email = "your@email.com")
+Description: Provides a unified smart_install() function that replaces
+    install.packages(), BiocManager::install(), and remotes::install_github().
+    Automatically detects the fastest CRAN mirror using two-step probing
+    (concurrent HEAD requests + real download verification), caches results
+    for 24 hours, and intelligently routes package sources to the correct
+    installation backend.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: false
+Imports:
+    utils
+Suggests:
+    curl,
+    BiocManager,
+    remotes,
+    testthat (>= 3.0.0)
+NeedsCompilation: no
