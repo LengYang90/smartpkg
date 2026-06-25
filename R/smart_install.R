@@ -23,40 +23,32 @@ smart_install <- function(pkg, ..., dry_run = FALSE) {
   info <- detect_pkg_source(pkg)
   args <- list(...)
 
-  # 纯包名 + 实际安装：自动判断 CRAN 还是 Bioconductor
-  # 直接让 install.packages() 跑，它内部调 available.packages() 且结果被 R 缓存。
-  # 用 withCallingHandlers 捕获 "not available" 警告来触发 Bioc fallback，
-  # 不需要我们事先再调一次 available.packages()。
+  # 纯包名 + 实际安装：先预加载 CRAN 和 Bioc 的包索引（R 内部自动缓存），
+  # 然后快速判断包属于哪个源。首次慢（下载 PACKAGES.gz），后续秒回。
   if (info$source == "cran" && !dry_run) {
     mirror <- detect_fastest_mirror()
 
-    not_available <- FALSE
-    result <- withCallingHandlers(
-      install_cran(info$pkg, args, dry_run = FALSE),
-      warning = function(w) {
-        msg <- conditionMessage(w)
-        # install.packages("limma", repos=...) → "package 'limma' is not available"
-        if (grepl("not available", msg, fixed = TRUE)) {
-          not_available <<- TRUE
-          invokeRestart("muffleWarning")
-        }
-      }
-    )
+    # 预加载包索引（仅首次会话下载，之后全部走缓存）
+    warm_package_cache(mirror)
 
-    if (not_available) {
-      # CRAN 上不存在 → 查询 Bioconductor
-      if (requireNamespace("BiocManager", quietly = TRUE)) {
-        if (length(BiocManager::available(info$pkg)) > 0) {
-          message("Not found on CRAN, installing from Bioconductor instead...")
-          return(invisible(install_bioc(info$pkg, args, dry_run = FALSE)))
-        }
-      }
-      # Bioc 也找不到
-      warning("package '", info$pkg, "' is not available for this version of R")
-      return(invisible(NULL))
+    # 检查 CRAN（从会话缓存查，≈0.001s）
+    on_cran <- info$pkg %in% .smartpkg_cache$cran_pkgs
+
+    if (on_cran) {
+      result <- install_cran(info$pkg, args, dry_run = FALSE)
+      return(invisible(result))
     }
 
-    return(invisible(result))
+    # CRAN 上不存在 → 查询 Bioconductor（从会话缓存查，≈0.001s）
+    if (length(.smartpkg_cache$bioc_pkgs) > 0) {
+      if (info$pkg %in% .smartpkg_cache$bioc_pkgs) {
+        message("Not found on CRAN, installing from Bioconductor instead...")
+        return(invisible(install_bioc(info$pkg, args, dry_run = FALSE)))
+      }
+    }
+
+    # 两个源都没有
+    stop("Package '", info$pkg, "' is not available on CRAN or Bioconductor.")
   }
 
   # dry_run 或显式命名空间：直接路由
@@ -164,4 +156,50 @@ install_local <- function(pkg, args, dry_run) {
     list(pkgs = pkg, repos = NULL, type = "source"),
     args
   ))
+}
+
+# ── 包索引预缓存 ──────────────────────────────────────────────────────────
+
+#' 会话级缓存标记
+.smartpkg_cache <- new.env(parent = emptyenv())
+
+#' 预加载 CRAN 和 Bioconductor 的包索引
+#'
+#' 第一次调用时下载 PACKAGES.gz（CRAN + Bioc），
+#' R 内部自动缓存结果。后续相同的查询瞬间返回。
+#' 不同 R 会话之间不共享此缓存。
+#'
+#' @param mirror CRAN 镜像 URL
+warm_package_cache <- function(mirror) {
+  if (isTRUE(.smartpkg_cache$warmed)) return()
+
+  # 预加载 CRAN 包索引
+  tryCatch({
+    contrib <- utils::contrib.url(mirror)
+    all <- utils::available.packages(contriburl = contrib)
+    .smartpkg_cache$cran_pkgs <- rownames(all)
+  }, error = function(e) .smartpkg_cache$cran_pkgs <- character(0))
+
+  # 预加载 Bioc 包索引
+  if (requireNamespace("BiocManager", quietly = TRUE)) {
+    tryCatch({
+      # 先设最快 Bioc 镜像，这样后续 install_bioc() 也用相同 URL
+      bioc_mirror <- detect_fastest_bioc_mirror()
+      options(BioC_mirror = bioc_mirror)
+      # 遍历所有 Bioc 子仓库，把包名全部拉出来
+      repos <- BiocManager::repositories()
+      all_bioc <- character(0)
+      for (r in repos) {
+        contrib <- utils::contrib.url(r)
+        found <- tryCatch(
+          rownames(utils::available.packages(contriburl = contrib)),
+          error = function(e) NULL
+        )
+        all_bioc <- c(all_bioc, found)
+      }
+      .smartpkg_cache$bioc_pkgs <- unique(all_bioc)
+    }, error = function(e) .smartpkg_cache$bioc_pkgs <- character(0))
+  }
+
+  .smartpkg_cache$warmed <- TRUE
 }
