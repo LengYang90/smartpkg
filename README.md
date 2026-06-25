@@ -1,54 +1,62 @@
 # smartpkg
 
-> Smart R Package Installer — 自动选择最快的 CRAN 镜像，支持 CRAN / Bioconductor / GitHub。
+> Smart R Package Installer — 一个函数搞定 CRAN / Bioconductor / GitHub 包的安装，自动选最快镜像。
 
-`smartpkg` 提供 `smart_install()` 函数，统一替代 `install.packages()`、`BiocManager::install()` 和 `remotes::install_github()`，核心能力：
-
-- 🚀 **自动选最快镜像** — 两步探测法：并发 HEAD 测试 + 真实下载验证，结果缓存 24 小时
-- 🧠 **智能来源识别** — 自动判断包来自 CRAN / Bioconductor / GitHub / 本地
-- 🌍 **全球通用** — 不限地区，任何国家的用户都能自动找到最快的镜像
-- 🔌 **即装即用** — 安装后无需任何配置，`smart_install()` 直接使用
-
-## 安装
-
-```r
-# 从 GitHub 安装 smartpkg
-remotes::install_github("yourusername/smartpkg")
-```
-
-## 使用
+安装 R 包最烦人的就是选镜像、切源、翻来覆去配置。`smart_install()` 一个函数通吃所有来源，自动为你选择最快的 CRAN 镜像，Bioconductor 包也不必额外配置——纯包名自动识别，找不到 CRAN 就找 Bioc。
 
 ```r
 library(smartpkg)
+```
 
-# CRAN 包 — 自动选最快镜像
+## 支持的安装场景
+
+CRAN 包——自动选择最快的镜像下载：
+
+```r
 smart_install("dplyr")
+smart_install("ggplot2", dependencies = TRUE)
+```
 
-# Bioconductor 包
-smart_install("Bioc::limma")
+Bioconductor 包——纯包名即可，自动识别并路由：
 
-# GitHub 包
+```r
+smart_install("limma")             # 自动：CRAN 找不到 → 走 Bioc
+smart_install("clusterProfiler")   # 自动：CRAN 找不到 → 走 Bioc
+smart_install("org.Hs.eg.db")     # 自动：CRAN 找不到 → 走 Bioc
+smart_install("Bioc::limma")       # 显式指定走 Bioc
+```
+
+GitHub 包——直接写 `username/repo`：
+
+```r
 smart_install("tidyverse/dplyr")
+smart_install("GitHub::tidyverse/dplyr")
+```
 
-# 本地包
+本地包——支持 `.tar.gz` 路径：
+
+```r
 smart_install("./mypkg_1.0.tar.gz")
-
-# 传递额外参数
-smart_install("ggplot2", dependencies = TRUE, quiet = TRUE)
-
-# 手动刷新镜像缓存
-refresh_mirror_cache()
 ```
 
 ## 工作原理
 
-1. **第一步**：获取 CRAN 官方镜像列表（约 100+ 镜像）
-2. **第二步**：对所有镜像并发发送 HEAD 请求，超时 3 秒，取最快 10 个
-3. **第三步**：对这 10 个镜像下载极小文件测速，选最快的
-4. **第四步**：结果缓存到 `~/.R/smartpkg_mirror_cache`，有效期 24 小时
+首次调用 `smart_install()` 时，程序会：
 
-## 依赖
+1. 从 CRAN 官方列表中自动探测响应最快的镜像（并发检测所有镜像，耗时约 5 秒）
+2. 同时检测最快的 Bioconductor 镜像
+3. 结果缓存到本地，**每 24 小时自动刷新一次**
 
-- CRAN 安装：`install.packages()`（R 内置）
-- Bioconductor：需要 `BiocManager` 包（首次使用时提示安装）
-- GitHub：需要 `remotes` 包（首次使用时提示安装）
+后续安装直接走缓存镜像，无需重复探测。你也可以随时手动刷新缓存：
+
+```r
+refresh_mirror_cache()
+```
+
+## 安装 smartpkg
+
+```r
+remotes::install_github("yourusername/smartpkg")
+```
+
+安装后无需任何配置即可使用。
