@@ -24,21 +24,29 @@ smart_install <- function(pkg, ..., dry_run = FALSE) {
   args <- list(...)
 
   # 纯包名 + 实际安装：CRAN → Bioc 自动 fallback
+  # 注意：install.packages() 对不存在的包只发 warning 不抛 error，
+  # 所以不能用 tryCatch 捕获。改用 available.packages() 预先检查。
   if (info$source == "cran" && !dry_run) {
-    result <- tryCatch(
-      install_cran(info$pkg, args, dry_run = FALSE),
-      error = function(e) {
-        # CRAN 安装失败 → 查询 Bioconductor
-        if (requireNamespace("BiocManager", quietly = TRUE)) {
-          if (tryCatch(BiocManager::available(info$pkg),
-                       error = function(e2) FALSE)) {
-            message("Not found on CRAN, installing from Bioconductor instead...")
-            return(install_bioc(info$pkg, args, dry_run = FALSE))
-          }
+    mirror <- detect_fastest_mirror()
+
+    # 检查包是否在 CRAN 上存在
+    contrib <- utils::contrib.url(mirror)
+    cran_pkgs <- rownames(utils::available.packages(contriburl = contrib))
+    on_cran <- info$pkg %in% cran_pkgs
+
+    if (!on_cran) {
+      # CRAN 上不存在 → 查询 Bioconductor
+      if (requireNamespace("BiocManager", quietly = TRUE)) {
+        bioc_avail <- BiocManager::available(info$pkg)
+        if (length(bioc_avail) > 0) {
+          message("Not found on CRAN, installing from Bioconductor instead...")
+          return(invisible(install_bioc(info$pkg, args, dry_run = FALSE)))
         }
-        stop(e)
       }
-    )
+      # 两个源都没有 → 让 install.packages 给出标准错误提示
+    }
+
+    result <- install_cran(info$pkg, args, dry_run = FALSE)
     return(invisible(result))
   }
 
