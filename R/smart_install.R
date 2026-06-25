@@ -24,15 +24,13 @@ smart_install <- function(pkg, ..., dry_run = FALSE) {
   args <- list(...)
 
   # 纯包名 + 实际安装：CRAN → Bioc 自动 fallback
-  # 注意：install.packages() 对不存在的包只发 warning 不抛 error，
-  # 所以不能用 tryCatch 捕获。改用 available.packages() 预先检查。
+  # 注意：install.packages() 对不存在的包只发 warning 不抛 error。
+  # 使用 HEAD 请求快速检查（约 0.1s），而非 available.packages()（下载 PACKAGES.gz，3-5s）。
   if (info$source == "cran" && !dry_run) {
     mirror <- detect_fastest_mirror()
 
-    # 检查包是否在 CRAN 上存在
-    contrib <- utils::contrib.url(mirror)
-    cran_pkgs <- rownames(utils::available.packages(contriburl = contrib))
-    on_cran <- info$pkg %in% cran_pkgs
+    # 快速检查包是否在 CRAN 上存在
+    on_cran <- pkg_exists_on_cran(info$pkg)
 
     if (!on_cran) {
       # CRAN 上不存在 → 查询 Bioconductor
@@ -155,4 +153,33 @@ install_local <- function(pkg, args, dry_run) {
     list(pkgs = pkg, repos = NULL, type = "source"),
     args
   ))
+}
+
+# ── CRAN 包存在性快速检查 ────────────────────────────────────────────────
+
+#' 快速检查包是否在 CRAN 上存在（通过 HEAD 请求，约 0.1s）
+#'
+#' 向 cloud.r-project.org 发送 HEAD 请求检查包页面是否存在，
+#' 避免下载整个 PACKAGES.gz 文件。
+#'
+#' @param pkg 包名
+#' @return TRUE 表示包在 CRAN 上，FALSE 表示不在（或网络异常时保守返回 TRUE）
+pkg_exists_on_cran <- function(pkg) {
+  url <- paste0("https://cloud.r-project.org/web/packages/", pkg, "/")
+
+  if (requireNamespace("curl", quietly = TRUE)) {
+    tryCatch({
+      h <- curl::new_handle()
+      curl::handle_setopt(h, customrequest = "HEAD", nobody = TRUE,
+                          timeout_ms = 5000)
+      resp <- curl::curl_fetch_memory(url, handle = h)
+      return(resp$status_code == 200)
+    }, error = function(e) {
+      # HEAD 请求失败（网络问题）→ 保守返回 TRUE，让 install.packages 自行判断
+      TRUE
+    })
+  } else {
+    # 无 curl：保守返回 TRUE
+    TRUE
+  }
 }
