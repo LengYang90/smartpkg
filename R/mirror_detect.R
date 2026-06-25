@@ -50,17 +50,129 @@ probe_mirror_response_time <- function(url, timeout = 3) {
 }
 
 #' 并发探测多个镜像的响应时间
+#'
+#' 如果 curl 包可用，使用 curl::multi_run() 实现真正并发探测，
+#' 96 个镜像同时检测，总耗时 ≈ 3 秒（超时上限），而非逐个探测的 5 分钟。
+#'
 #' @param mirrors 镜像 URL 向量
 #' @param timeout 超时秒数
 #' @return 带响应时间的数据框
 probe_mirrors_concurrent <- function(mirrors, timeout = 3) {
-  times <- vapply(mirrors, probe_mirror_response_time,
-                  numeric(1), timeout = timeout, USE.NAMES = FALSE)
-  data.frame(
-    URL = mirrors,
-    response_time = times,
-    stringsAsFactors = FALSE
-  )
+  if (length(mirrors) == 0) {
+    return(data.frame(URL = character(0), response_time = numeric(0),
+                      stringsAsFactors = FALSE))
+  }
+
+  if (requireNamespace("curl", quietly = TRUE)) {
+    probe_mirrors_curl_multi(mirrors, timeout)
+  } else {
+    # fallback: 顺序探测（慢）
+    times <- vapply(mirrors, probe_mirror_response_time,
+                    numeric(1), timeout = timeout, USE.NAMES = FALSE)
+    data.frame(URL = mirrors, response_time = times, stringsAsFactors = FALSE)
+  }
+}
+
+#' 使用 curl::multi_run() 并发 HEAD 请求探测所有镜像
+#' 所有请求同时发出，总耗时 = 最慢请求耗时（≤ timeout）
+#' @param mirrors 镜像 URL 向量
+#' @param timeout 超时秒数
+#' @return 带响应时间的数据框
+probe_mirrors_curl_multi <- function(mirrors, timeout = 3) {
+  pool <- curl::new_pool(total_con = 100, host_con = 6)
+  results <- new.env(hash = FALSE, parent = emptyenv())
+
+  for (i in seq_along(mirrors)) {
+    url <- gsub("/?$", "/", mirrors[i])
+    h <- curl::new_handle()
+    curl::handle_setopt(h,
+      customrequest = "HEAD",
+      nobody = TRUE,
+      timeout_ms = timeout * 1000,
+      connecttimeout_ms = timeout * 1000
+    )
+
+    # 用 local() 捕获 i 的当前值，避免 R 闭包陷阱
+    local({
+      idx <- i
+      curl::curl_fetch_multi(url, handle = h, pool = pool,
+        done = function(resp) {
+          assign(as.character(idx), as.numeric(resp$times[["total"]]),
+                 envir = results)
+        },
+        fail = function(msg) {
+          assign(as.character(idx), Inf, envir = results)
+        }
+      )
+    })
+  }
+
+  curl::multi_run(pool = pool)
+
+  response_times <- vapply(seq_along(mirrors), function(i) {
+    val <- results[[as.character(i)]]
+    if (is.null(val)) Inf else val
+  }, numeric(1))
+
+  data.frame(URL = mirrors, response_time = response_times,
+             stringsAsFactors = FALSE)
+}
+
+#' 并发下载候选镜像的 index.html 进行真实测速
+#' @param candidates 带 URL 列的 data.frame
+#' @param timeout 超时秒数
+#' @return 新增 download_time 列的 data.frame
+verify_candidates_concurrent <- function(candidates, timeout = 5) {
+  if (nrow(candidates) == 0) return(candidates)
+
+  if (requireNamespace("curl", quietly = TRUE)) {
+    pool <- curl::new_pool(total_con = 10, host_con = 6)
+    results <- new.env(hash = FALSE, parent = emptyenv())
+
+    for (i in seq_len(nrow(candidates))) {
+      url <- paste0(gsub("/?$", "/", candidates$URL[i]), "index.html")
+      h <- curl::new_handle()
+      curl::handle_setopt(h,
+        timeout_ms = timeout * 1000,
+        connecttimeout_ms = timeout * 1000
+      )
+
+      local({
+        idx <- i
+        start <- Sys.time()
+        curl::curl_fetch_multi(url, handle = h, pool = pool,
+          done = function(resp) {
+            elapsed <- as.numeric(difftime(Sys.time(), start, units = "secs"))
+            assign(as.character(idx), elapsed, envir = results)
+          },
+          fail = function(msg) {
+            assign(as.character(idx), Inf, envir = results)
+          }
+        )
+      })
+    }
+
+    curl::multi_run(pool = pool)
+
+    candidates$download_time <- vapply(seq_len(nrow(candidates)), function(i) {
+      val <- results[[as.character(i)]]
+      if (is.null(val)) Inf else val
+    }, numeric(1))
+  } else {
+    # fallback: 顺序下载
+    candidates$download_time <- vapply(seq_len(nrow(candidates)), function(i) {
+      url <- paste0(gsub("/?$", "/", candidates$URL[i]), "index.html")
+      start <- Sys.time()
+      tryCatch({
+        tf <- tempfile()
+        on.exit(unlink(tf))
+        utils::download.file(url = url, destfile = tf, quiet = TRUE, timeout = timeout)
+        as.numeric(difftime(Sys.time(), start, units = "secs"))
+      }, error = function(e) Inf)
+    }, numeric(1))
+  }
+
+  candidates
 }
 
 #' 从镜像列表中获取最快的 N 个镜像
@@ -82,28 +194,9 @@ get_fastest_mirror <- function(mirrors, top_n = 10) {
 
   candidates <- head(probe_results, min(top_n, nrow(probe_results)))
 
-  # 第二步：对候选镜像做真实下载验证
+  # 第二步：对候选镜像做真实下载验证（并发）
   if (nrow(candidates) > 1) {
-    # 下载一个极小文件（CRAN 根目录的 index.html）
-    candidates$download_time <- vapply(
-      candidates$URL,
-      function(url) {
-        url <- gsub("/?$", "/", url)
-        start <- Sys.time()
-        tryCatch({
-          tf <- tempfile()
-          on.exit(unlink(tf))
-          utils::download.file(
-            url = paste0(url, "index.html"),
-            destfile = tf,
-            quiet = TRUE,
-            timeout = 5
-          )
-          as.numeric(difftime(Sys.time(), start, units = "secs"))
-        }, error = function(e) Inf)
-      },
-      numeric(1)
-    )
+    candidates <- verify_candidates_concurrent(candidates, timeout = 5)
     candidates <- candidates[is.finite(candidates$download_time), ]
     if (nrow(candidates) == 0) {
       return("https://cloud.r-project.org")
