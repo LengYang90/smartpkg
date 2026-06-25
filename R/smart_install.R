@@ -24,13 +24,13 @@ smart_install <- function(pkg, ..., dry_run = FALSE) {
   args <- list(...)
 
   # 纯包名 + 实际安装：CRAN → Bioc 自动 fallback
-  # 注意：install.packages() 对不存在的包只发 warning 不抛 error。
-  # 使用 HEAD 请求快速检查（约 0.1s），而非 available.packages()（下载 PACKAGES.gz，3-5s）。
+  # 通过 available.packages() 从已探测到的最快镜像检查包是否存在
+  # 注意：install.packages() 对不存在的包只发 warning 不抛 error，无法用 tryCatch
   if (info$source == "cran" && !dry_run) {
     mirror <- detect_fastest_mirror()
 
-    # 快速检查包是否在 CRAN 上存在
-    on_cran <- pkg_exists_on_cran(info$pkg)
+    # 从最快镜像查询 PACKAGES 索引（第一次下载缓存后，后续调用秒回）
+    on_cran <- pkg_exists_on_cran(info$pkg, mirror)
 
     if (!on_cran) {
       # CRAN 上不存在 → 查询 Bioconductor
@@ -157,53 +157,23 @@ install_local <- function(pkg, args, dry_run) {
 
 # ── CRAN 包存在性快速检查 ────────────────────────────────────────────────
 
-#' 快速检查包是否在 CRAN 上存在且当前可安装
+#' 检查包是否在 CRAN 上当前可用
 #'
-#' 两步检测法（全部用 HEAD/短读取，避免下载 PACKAGES.gz）:
-#' 1. HEAD `web/packages/<pkg>/` → 404 = 从未上过 CRAN → FALSE
-#' 2. 读取页面前 15 行 → 含 "removed from the CRAN" → 已归档 → FALSE
-#' 3. 否则 → 活跃 CRAN 包 → TRUE
+#' 从指定的（最快）CRAN 镜像查询 PACKAGES 索引。
+#' R 内部会缓存 available.packages() 的结果，
+#' 同一会话中后续调用是即时的。
 #'
 #' @param pkg 包名
-#' @return TRUE 表示包在 CRAN 上当前可用，FALSE 表示不在
-pkg_exists_on_cran <- function(pkg) {
-  if (!requireNamespace("curl", quietly = TRUE)) return(TRUE)
-
-  base_url <- "https://cloud.r-project.org/web/packages"
-  url <- paste0(base_url, "/", pkg, "/")
-
-  # Step 1: HEAD 检查 → 404 = 从未上过 CRAN
-  head_resp <- tryCatch({
-    h <- curl::new_handle()
-    curl::handle_setopt(h, customrequest = "HEAD", nobody = TRUE,
-                        timeout_ms = 5000)
-    curl::curl_fetch_memory(url, handle = h)
-  }, error = function(e) NULL)
-
-  if (is.null(head_resp) || head_resp$status_code == 404) {
-    return(FALSE)
-  }
-
-  # Step 2: HEAD 200 → 读取前 15 行判断是否已归档（已移除的 CRAN 包）
-  page_url <- paste0(url, "index.html")
-  con <- NULL
-  lines <- NULL
+#' @param mirror CRAN 镜像 URL
+#' @return TRUE 表示包当前在 CRAN 上，FALSE 表示不在
+pkg_exists_on_cran <- function(pkg, mirror) {
+  if (is.null(mirror) || is.na(mirror)) return(FALSE)
   tryCatch({
-    con <- curl::curl(page_url, open = "r")
-    lines <- readLines(con, n = 15, warn = FALSE)
+    contrib <- utils::contrib.url(mirror)
+    avail <- utils::available.packages(contriburl = contrib)
+    pkg %in% rownames(avail)
   }, error = function(e) {
-    lines <<- NULL
-  }, finally = {
-    if (!is.null(con)) try(close(con), silent = TRUE)
+    # 查询失败（网络异常等）→ 让 install.packages 自行判断
+    TRUE
   })
-
-  # 无法读取页面 → 保守返回 TRUE
-  if (is.null(lines)) return(TRUE)
-
-  # 已归档的包页面含有 "removed from the CRAN repository"
-  if (any(grepl("removed from the CRAN", lines, ignore.case = TRUE))) {
-    return(FALSE)
-  }
-
-  TRUE
 }
