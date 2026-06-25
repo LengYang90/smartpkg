@@ -24,29 +24,38 @@ smart_install <- function(pkg, ..., dry_run = FALSE) {
   args <- list(...)
 
   # 纯包名 + 实际安装：自动判断 CRAN 还是 Bioconductor
-  # 通过 available.packages() 从最快镜像查询 CRAN 包索引
-  # 如果 CRAN 上不存在，自动 fallback 到 Bioconductor
+  # 直接让 install.packages() 跑，它内部调 available.packages() 且结果被 R 缓存。
+  # 用 withCallingHandlers 捕获 "not available" 警告来触发 Bioc fallback，
+  # 不需要我们事先再调一次 available.packages()。
   if (info$source == "cran" && !dry_run) {
     mirror <- detect_fastest_mirror()
 
-    # 从最快镜像检查包是否在 CRAN 上
-    on_cran <- tryCatch({
-      contrib <- utils::contrib.url(mirror)
-      info$pkg %in% rownames(utils::available.packages(contriburl = contrib))
-    }, error = function(e) NA)
+    not_available <- FALSE
+    result <- withCallingHandlers(
+      install_cran(info$pkg, args, dry_run = FALSE),
+      warning = function(w) {
+        msg <- conditionMessage(w)
+        # install.packages("limma", repos=...) → "package 'limma' is not available"
+        if (grepl("not available", msg, fixed = TRUE)) {
+          not_available <<- TRUE
+          invokeRestart("muffleWarning")
+        }
+      }
+    )
 
-    # 不在 CRAN 上 → 查询 Bioconductor
-    if (!isTRUE(on_cran)) {
+    if (not_available) {
+      # CRAN 上不存在 → 查询 Bioconductor
       if (requireNamespace("BiocManager", quietly = TRUE)) {
         if (length(BiocManager::available(info$pkg)) > 0) {
           message("Not found on CRAN, installing from Bioconductor instead...")
           return(invisible(install_bioc(info$pkg, args, dry_run = FALSE)))
         }
       }
-      # 查询失败或两个源都没有 → 让 install.packages 处理
+      # Bioc 也找不到
+      warning("package '", info$pkg, "' is not available for this version of R")
+      return(invisible(NULL))
     }
 
-    result <- install_cran(info$pkg, args, dry_run = FALSE)
     return(invisible(result))
   }
 
