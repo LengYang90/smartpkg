@@ -16,7 +16,7 @@ detect_pkg_source <- function(pkg) {
   if (grepl("::", pkg, fixed = TRUE)) {
     parts <- strsplit(pkg, "::", fixed = TRUE)[[1]]
     namespace <- tolower(trimws(parts[1]))
-    pkg_name <- trimws(parts[2])
+    pkg_name <- if (length(parts) >= 2) trimws(parts[2]) else ""
 
     if (namespace == "cran") {
       return(list(source = "cran", pkg = pkg_name))
@@ -58,6 +58,6 @@ parse_github <- function(pkg) {
     source = "github",
     pkg = pkg,
     username = parts[1],
-    repo = parts[2]
+    repo = paste(parts[-1], collapse = "/")
   )
 }
