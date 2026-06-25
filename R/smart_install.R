@@ -157,29 +157,53 @@ install_local <- function(pkg, args, dry_run) {
 
 # ── CRAN 包存在性快速检查 ────────────────────────────────────────────────
 
-#' 快速检查包是否在 CRAN 上存在（通过 HEAD 请求，约 0.1s）
+#' 快速检查包是否在 CRAN 上存在且当前可安装
 #'
-#' 向 cloud.r-project.org 发送 HEAD 请求检查包页面是否存在，
-#' 避免下载整个 PACKAGES.gz 文件。
+#' 两步检测法（全部用 HEAD/短读取，避免下载 PACKAGES.gz）:
+#' 1. HEAD `web/packages/<pkg>/` → 404 = 从未上过 CRAN → FALSE
+#' 2. 读取页面前 15 行 → 含 "removed from the CRAN" → 已归档 → FALSE
+#' 3. 否则 → 活跃 CRAN 包 → TRUE
 #'
 #' @param pkg 包名
-#' @return TRUE 表示包在 CRAN 上，FALSE 表示不在（或网络异常时保守返回 TRUE）
+#' @return TRUE 表示包在 CRAN 上当前可用，FALSE 表示不在
 pkg_exists_on_cran <- function(pkg) {
-  url <- paste0("https://cloud.r-project.org/web/packages/", pkg, "/")
+  if (!requireNamespace("curl", quietly = TRUE)) return(TRUE)
 
-  if (requireNamespace("curl", quietly = TRUE)) {
-    tryCatch({
-      h <- curl::new_handle()
-      curl::handle_setopt(h, customrequest = "HEAD", nobody = TRUE,
-                          timeout_ms = 5000)
-      resp <- curl::curl_fetch_memory(url, handle = h)
-      return(resp$status_code == 200)
-    }, error = function(e) {
-      # HEAD 请求失败（网络问题）→ 保守返回 TRUE，让 install.packages 自行判断
-      TRUE
-    })
-  } else {
-    # 无 curl：保守返回 TRUE
-    TRUE
+  base_url <- "https://cloud.r-project.org/web/packages"
+  url <- paste0(base_url, "/", pkg, "/")
+
+  # Step 1: HEAD 检查 → 404 = 从未上过 CRAN
+  head_resp <- tryCatch({
+    h <- curl::new_handle()
+    curl::handle_setopt(h, customrequest = "HEAD", nobody = TRUE,
+                        timeout_ms = 5000)
+    curl::curl_fetch_memory(url, handle = h)
+  }, error = function(e) NULL)
+
+  if (is.null(head_resp) || head_resp$status_code == 404) {
+    return(FALSE)
   }
+
+  # Step 2: HEAD 200 → 读取前 15 行判断是否已归档（已移除的 CRAN 包）
+  page_url <- paste0(url, "index.html")
+  con <- NULL
+  lines <- NULL
+  tryCatch({
+    con <- curl::curl(page_url, open = "r")
+    lines <- readLines(con, n = 15, warn = FALSE)
+  }, error = function(e) {
+    lines <<- NULL
+  }, finally = {
+    if (!is.null(con)) try(close(con), silent = TRUE)
+  })
+
+  # 无法读取页面 → 保守返回 TRUE
+  if (is.null(lines)) return(TRUE)
+
+  # 已归档的包页面含有 "removed from the CRAN repository"
+  if (any(grepl("removed from the CRAN", lines, ignore.case = TRUE))) {
+    return(FALSE)
+  }
+
+  TRUE
 }
