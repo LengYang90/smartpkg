@@ -52,16 +52,18 @@ install_cran <- function(pkg, args, dry_run) {
 }
 
 #' 安装 Bioconductor 包
-#' 自动使用最快 CRAN 镜像安装 CRAN 依赖
+#' 自动使用最快 CRAN 镜像 + 最快 Bioconductor 镜像
 install_bioc <- function(pkg, args, dry_run) {
-  # Bioconductor 也需要最快 CRAN 镜像来安装 CRAN 依赖
-  mirror <- detect_fastest_mirror()
+  # 检测最快的 CRAN 和 Bioconductor 镜像
+  cran_mirror <- detect_fastest_mirror()
+  bioc_mirror <- detect_fastest_bioc_mirror()
 
   if (dry_run) {
     return(list(
       source = "bioc",
       pkg = pkg,
-      mirror = mirror,
+      mirror = cran_mirror,
+      bioc_mirror = bioc_mirror,
       backend = "BiocManager::install",
       args = args
     ))
@@ -72,10 +74,15 @@ install_bioc <- function(pkg, args, dry_run) {
          "Install it with: install.packages('BiocManager')")
   }
 
-  # 设置最快 CRAN 镜像，让 BiocManager 安装 CRAN 依赖时也用最快的源
+  # 设置最快 CRAN 镜像 + 最快 Bioc 镜像
   old_repos <- getOption("repos")
-  on.exit(options(repos = old_repos))
-  options(repos = c(CRAN = mirror))
+  old_bioc_mirror <- getOption("BioC_mirror")
+  on.exit({
+    options(repos = old_repos)
+    options(BioC_mirror = old_bioc_mirror)
+  })
+  options(repos = c(CRAN = cran_mirror))
+  options(BioC_mirror = bioc_mirror)
 
   do.call(BiocManager::install, c(list(pkg), args))
 }
