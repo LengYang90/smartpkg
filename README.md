@@ -4,6 +4,8 @@
 
 安装 R 包最烦人的就是选镜像、切源、翻来覆去配置。`smart_install()` 一个函数通吃所有来源，自动为你选择最快的 CRAN 镜像，Bioconductor 包也不必额外配置——纯包名自动识别，找不到 CRAN 就找 Bioc。
 
+![smartpkg 架构图](man/figures/smartpkg-architecture.png)
+
 ```r
 library(smartpkg)
 ```

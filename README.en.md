@@ -4,6 +4,8 @@
 
 Tired of configuring CRAN mirrors, switching repositories, and manually figuring out package sources? `smart_install()` handles everything in one call: it automatically detects the fastest CRAN mirror, intelligently routes plain package names to CRAN or Bioconductor, and supports GitHub and local packages out of the box.
 
+![smartpkg architecture](man/figures/smartpkg-architecture.png)
+
 ```r
 library(smartpkg)
 ```
