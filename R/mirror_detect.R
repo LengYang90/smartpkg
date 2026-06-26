@@ -316,8 +316,8 @@ detect_fastest_bioc_mirror <- function() {
 
   if (compatible_count == 0) {
     stop("No Bioconductor mirror supports Bioc version ", bioc_version, ". ",
-         "Your BiocManager version may be too old. Please upgrade:\n",
-         "  BiocManager::install(version = \"latest\")")
+         "Your BiocManager may be too old. Please upgrade:\n",
+         "  install.packages(\"BiocManager\")")
   }
 
   # 从版本特定 PACKAGES.gz URL 还原为镜像根 URL
@@ -328,9 +328,9 @@ detect_fastest_bioc_mirror <- function() {
   if (skipped > 0) {
     warning(skipped, " of ", all_count, " Bioconductor mirrors do not support ",
             "Bioc version ", bioc_version, ". ",
-            "Selected: ", fastest, ". ",
+	    "Selected: ", fastest, ". ",
             "A faster mirror may be available after upgrading:\n",
-            "  BiocManager::install(version = \"latest\")")
+            "  install.packages(\"BiocManager\")")
   }
 
   message("Fastest Bioc mirror selected: ", fastest)
