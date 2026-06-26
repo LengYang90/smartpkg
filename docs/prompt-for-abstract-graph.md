@@ -29,7 +29,9 @@ The diagram should show:
 2. "BiocManager::install()" — for Bioconductor packages (uses both fastest CRAN and fastest Bioc mirrors)
 3. "remotes::install_github()" — for GitHub packages
 
-**Bottom**: A "24h File Cache" box that stores mirror probe results (~/.R/smartpkg_mirror_cache), shared across R sessions.
+**Bottom**:
+1. A "24h File Cache" box that stores mirror probe results (~/.R/smartpkg_mirror_cache), shared across R sessions.
+2. A "refresh_mirror_cache()" button/trigger pointing at the cache, representing the manual cache-clearing function.
 
 Style: Clean, modern, with a blue/teal color scheme. Use icons if possible (R logo, database icon, server icon, package icon). The diagram should be readable at 1200px wide. Use arrows to show data flow direction.
 ```
@@ -61,7 +63,9 @@ smartpkg 提供 smart_install() 一个函数，统一替代 install.packages()�
 2. "BiocManager::install(最快CRAN + 最快Bioc镜像)" — Bioc 包
 3. "remotes::install_github()" — GitHub 包
 
-**底部**："24小时文件缓存" — 镜像探测结果存储在 ~/.R/smartpkg_mirror_cache，跨 R 会话共享
+**底部**：
+1. "24小时文件缓存" — 镜像探测结果存储在 ~/.R/smartpkg_mirror_cache，跨 R 会话共享
+2. "refresh_mirror_cache()" — 清除缓存按钮/触发点，指向文件缓存，手动触发重新探测
 
 风格：简洁现代，蓝/青色系。使用箭头表示数据流向。宽度约 1200px。
 ```
