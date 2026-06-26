@@ -95,8 +95,12 @@ probe_mirrors_curl_multi <- function(mirrors, timeout = 3) {
       idx <- i
       curl::curl_fetch_multi(url, handle = h, pool = pool,
         done = function(resp) {
-          assign(as.character(idx), as.numeric(resp$times[["total"]]),
-                 envir = results)
+          if (resp$status_code == 200) {
+            assign(as.character(idx), as.numeric(resp$times[["total"]]),
+                   envir = results)
+          } else {
+            assign(as.character(idx), Inf, envir = results)
+          }
         },
         fail = function(msg) {
           assign(as.character(idx), Inf, envir = results)
