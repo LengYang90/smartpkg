@@ -309,16 +309,28 @@ detect_fastest_bioc_mirror <- function() {
   probe_results <- probe_results[is.finite(probe_results$response_time), ]
   probe_results <- probe_results[order(probe_results$response_time), ]
 
-  if (nrow(probe_results) == 0) {
-    # 所有镜像均不支持当前 Bioc 版本 → 提示用户升级
+  # 统计被跳过的镜像（版本不兼容）
+  all_count <- length(mirrors)
+  compatible_count <- nrow(probe_results)
+  skipped <- all_count - compatible_count
+
+  if (compatible_count == 0) {
     stop("No Bioconductor mirror supports Bioc version ", bioc_version, ". ",
          "Your BiocManager version may be too old. Please upgrade:\n",
          "  BiocManager::install(version = \"latest\")")
-  } else {
-    # 从版本特定 PACKAGES.gz URL 还原为镜像根 URL
-    # 去掉末尾的 /packages/{version}/bioc/src/contrib/PACKAGES.gz
-    fastest <- sub("/packages/[^/]+/bioc/src/contrib/PACKAGES\\.gz$", "",
-                   probe_results$URL[1])
+  }
+
+  # 从版本特定 PACKAGES.gz URL 还原为镜像根 URL
+  fastest <- sub("/packages/[^/]+/bioc/src/contrib/PACKAGES\\.gz$", "",
+                 probe_results$URL[1])
+
+  # 如果部分镜像因版本不兼容被跳过，提示用户
+  if (skipped > 0) {
+    warning(skipped, " of ", all_count, " Bioconductor mirrors do not support ",
+            "Bioc version ", bioc_version, ". ",
+            "Selected: ", fastest, ". ",
+            "A faster mirror may be available after upgrading:\n",
+            "  BiocManager::install(version = \"latest\")")
   }
 
   message("Fastest Bioc mirror selected: ", fastest)
