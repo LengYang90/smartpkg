@@ -254,6 +254,8 @@ detect_fastest_mirror <- function() {
 #' 探测并返回最快的 Bioconductor 镜像 URL
 #'
 #' 对所有已知 Bioc 镜像做并发 HEAD 请求，选响应最快的。
+#' 注意：探测的是版本特定路径（packages/{version}/bioc/），
+#' 而非镜像根路径。这样不兼容当前 Bioc 版本的镜像会返回 404 被自动排除。
 #' 结果与 CRAN 镜像一起缓存 24 小时。
 #'
 #' @return 最快 Bioc 镜像的 URL 字符串（末尾无斜线）
@@ -271,9 +273,21 @@ detect_fastest_bioc_mirror <- function() {
   mirrors <- get_bioc_mirror_list()
   message("Found ", length(mirrors), " Bioc mirrors")
 
+  # 获取当前 Bioc 版本，构造版本特定探测 URL
+  # 这样不支持当前 Bioc 版本的镜像会返回 404，不会被选上
+  bioc_version <- if (requireNamespace("BiocManager", quietly = TRUE)) {
+    as.character(BiocManager::version())
+  } else {
+    "3.19"  # fallback：如果没装 BiocManager，用常见版本
+  }
+
+  # 构造版本特定的探测 URL：{mirror}/packages/{version}/bioc/
+  probe_urls <- file.path(gsub("/$", "", mirrors),
+                          "packages", bioc_version, "bioc")
+
   # 单步探测（Bioc 镜像少，无需下载验证）
-  probe_results <- if (length(mirrors) > 0) {
-    probe_mirrors_concurrent(mirrors)
+  probe_results <- if (length(probe_urls) > 0) {
+    probe_mirrors_concurrent(probe_urls)
   } else {
     data.frame(URL = character(0), response_time = numeric(0),
                stringsAsFactors = FALSE)
@@ -285,7 +299,8 @@ detect_fastest_bioc_mirror <- function() {
   if (nrow(probe_results) == 0) {
     fastest <- "https://bioconductor.org"
   } else {
-    fastest <- gsub("/$", "", probe_results$URL[1])  # 去掉末尾斜线
+    # 从版本特定 URL 还原为镜像根 URL（去掉末尾的 packages/{version}/bioc）
+    fastest <- gsub("/packages/[^/]+/bioc$", "", probe_results$URL[1])
   }
 
   message("Fastest Bioc mirror selected: ", fastest)
