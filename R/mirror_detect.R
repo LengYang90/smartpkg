@@ -306,7 +306,10 @@ detect_fastest_bioc_mirror <- function() {
   probe_results <- probe_results[order(probe_results$response_time), ]
 
   if (nrow(probe_results) == 0) {
-    fastest <- "https://bioconductor.org"
+    # 所有镜像均不支持当前 Bioc 版本 → 提示用户升级
+    stop("No Bioconductor mirror supports Bioc version ", bioc_version, ". ",
+         "Your BiocManager version may be too old. Please upgrade:\n",
+         "  BiocManager::install(version = \"latest\")")
   } else {
     # 从版本特定 PACKAGES.gz URL 还原为镜像根 URL
     # 去掉末尾的 /packages/{version}/bioc/src/contrib/PACKAGES.gz
