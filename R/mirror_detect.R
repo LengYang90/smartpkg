@@ -37,7 +37,10 @@ get_bioc_mirror_list <- function() {
 #' @param timeout 超时秒数
 #' @return 响应时间（秒），失败返回 Inf
 probe_mirror_response_time <- function(url, timeout = 3) {
-  url <- gsub("/?$", "/", url)
+  # 对文件 URL（带扩展名）不加尾部斜杠，避免 PACKAGES.gz 变成 PACKAGES.gz/
+  if (!grepl("\\.[A-Za-z0-9]+$", url)) {
+    url <- gsub("/?$", "/", url)
+  }
   start <- Sys.time()
 
   if (requireNamespace("curl", quietly = TRUE)) {
@@ -77,7 +80,11 @@ probe_mirrors_curl_multi <- function(mirrors, timeout = 3) {
   results <- new.env(hash = FALSE, parent = emptyenv())
 
   for (i in seq_along(mirrors)) {
-    url <- gsub("/?$", "/", mirrors[i])
+    url <- mirrors[i]
+    # 对文件 URL（带扩展名）不加尾部斜杠
+    if (!grepl("\\.[A-Za-z0-9]+$", url)) {
+      url <- gsub("/?$", "/", url)
+    }
     h <- curl::new_handle()
     curl::handle_setopt(h,
       customrequest = "HEAD", nobody = TRUE,
@@ -281,9 +288,11 @@ detect_fastest_bioc_mirror <- function() {
     "3.19"  # fallback：如果没装 BiocManager，用常见版本
   }
 
-  # 构造版本特定的探测 URL：{mirror}/packages/{version}/bioc/
+  # 构造版本特定的探测 URL：{mirror}/packages/{version}/bioc/src/contrib/PACKAGES.gz
+  # 注意：不能用目录路径（如 .../bioc/），因为目录存在不代表里面的 PACKAGES 文件存在
   probe_urls <- file.path(gsub("/$", "", mirrors),
-                          "packages", bioc_version, "bioc")
+                          "packages", bioc_version, "bioc",
+                          "src", "contrib", "PACKAGES.gz")
 
   # 单步探测（Bioc 镜像少，无需下载验证）
   probe_results <- if (length(probe_urls) > 0) {
@@ -299,8 +308,10 @@ detect_fastest_bioc_mirror <- function() {
   if (nrow(probe_results) == 0) {
     fastest <- "https://bioconductor.org"
   } else {
-    # 从版本特定 URL 还原为镜像根 URL（去掉末尾的 packages/{version}/bioc）
-    fastest <- gsub("/packages/[^/]+/bioc$", "", probe_results$URL[1])
+    # 从版本特定 PACKAGES.gz URL 还原为镜像根 URL
+    # 去掉末尾的 /packages/{version}/bioc/src/contrib/PACKAGES.gz
+    fastest <- sub("/packages/[^/]+/bioc/src/contrib/PACKAGES\\.gz$", "",
+                   probe_results$URL[1])
   }
 
   message("Fastest Bioc mirror selected: ", fastest)
