@@ -1,10 +1,22 @@
-#' 获取 CRAN 官方镜像列表
-#' @return data.frame，包含 URL 和 Country 等列
-get_mirror_list <- function() {
-  utils::getCRANmirrors(all = TRUE, local.only = FALSE)
+#' Get the official CRAN mirror list
+#' @param refresh If TRUE, try to fetch the latest mirror list from CRAN first.
+#' @return data.frame containing URL, Country, and related columns
+get_mirror_list <- function(refresh = FALSE) {
+  if (!isTRUE(refresh)) {
+    return(utils::getCRANmirrors(all = TRUE, local.only = TRUE))
+  }
+
+  tryCatch(
+    utils::getCRANmirrors(all = TRUE, local.only = FALSE),
+    error = function(e) {
+      warning("Unable to fetch remote CRAN mirror list; using local copy. ",
+              conditionMessage(e), call. = FALSE)
+      utils::getCRANmirrors(all = TRUE, local.only = TRUE)
+    }
+  )
 }
 
-# ── 已知的 Bioconductor 镜像列表 ──────────────────────────────────────────
+# ── Known Bioconductor Mirrors ─────────────────────────────────────────────
 
 known_bioc_mirrors <- c(
   "https://bioconductor.org",                             # Main (US)
@@ -14,30 +26,32 @@ known_bioc_mirrors <- c(
   "https://bioconductor.mirrors.ustc.edu.cn/"              # USTC alt (China)
 )
 
-#' 获取 Bioconductor 镜像列表
-#' 优先从 BiocManager 获取官方列表，否则使用已知列表
+official_bioc_mirror <- "https://bioconductor.org"
+
+#' Get the Bioconductor mirror list
 #' @return character vector of URLs
 get_bioc_mirror_list <- function() {
-  if (requireNamespace("BiocManager", quietly = TRUE)) {
-    mirror_table <- tryCatch(
-      BiocManager:::.getMirrorTable(),
-      error = function(e) NULL
-    )
-    if (is.data.frame(mirror_table) && "URL" %in% names(mirror_table)) {
-      return(mirror_table$URL)
-    }
-  }
   known_bioc_mirrors
 }
 
-# ── 探测引擎（通用） ──────────────────────────────────────────────────────
+#' Get the current Bioconductor version
+#' @return character scalar
+get_current_bioc_version <- function() {
+  if (requireNamespace("BiocManager", quietly = TRUE)) {
+    as.character(BiocManager::version())
+  } else {
+    "3.19"  # Fallback to a common version when BiocManager is unavailable.
+  }
+}
 
-#' 探测单个镜像的响应时间（HEAD 请求）
-#' @param url 镜像 URL
-#' @param timeout 超时秒数
-#' @return 响应时间（秒），失败返回 Inf
+# ── Generic Probing Engine ─────────────────────────────────────────────────
+
+#' Probe the response time of a single mirror using a HEAD request
+#' @param url Mirror URL
+#' @param timeout Timeout in seconds
+#' @return Response time in seconds, or Inf on failure
 probe_mirror_response_time <- function(url, timeout = 3) {
-  # 对文件 URL（带扩展名）不加尾部斜杠，避免 PACKAGES.gz 变成 PACKAGES.gz/
+  # Do not append a trailing slash to file URLs such as PACKAGES.gz.
   if (!grepl("\\.[A-Za-z0-9]+$", url)) {
     url <- gsub("/?$", "/", url)
   }
@@ -65,11 +79,11 @@ probe_mirror_response_time <- function(url, timeout = 3) {
   }
 }
 
-#' 使用 curl::multi_run() 并发 HEAD 请求探测多个镜像
-#' 所有请求同时发出，总耗时 = 最慢请求耗时（≤ timeout）
-#' @param mirrors 镜像 URL 向量
-#' @param timeout 超时秒数
-#' @return 带响应时间的数据框
+#' Probe multiple mirrors concurrently with curl::multi_run() HEAD requests
+#' Requests are issued together, so total time is bounded by the slowest request.
+#' @param mirrors Mirror URL vector
+#' @param timeout Timeout in seconds
+#' @return data.frame with response times
 probe_mirrors_curl_multi <- function(mirrors, timeout = 3) {
   if (length(mirrors) == 0) {
     return(data.frame(URL = character(0), response_time = numeric(0),
@@ -81,7 +95,7 @@ probe_mirrors_curl_multi <- function(mirrors, timeout = 3) {
 
   for (i in seq_along(mirrors)) {
     url <- mirrors[i]
-    # 对文件 URL（带扩展名）不加尾部斜杠
+    # Do not append a trailing slash to file URLs.
     if (!grepl("\\.[A-Za-z0-9]+$", url)) {
       url <- gsub("/?$", "/", url)
     }
@@ -120,26 +134,26 @@ probe_mirrors_curl_multi <- function(mirrors, timeout = 3) {
              stringsAsFactors = FALSE)
 }
 
-#' 并发探测多个镜像的响应时间
-#' 如果 curl 包可用，使用 curl::multi_run() 实现真正并发探测
-#' @param mirrors 镜像 URL 向量
-#' @param timeout 超时秒数
-#' @return 带响应时间的数据框
+#' Probe response times for multiple mirrors concurrently
+#' Uses curl::multi_run() for true concurrency when curl is available.
+#' @param mirrors Mirror URL vector
+#' @param timeout Timeout in seconds
+#' @return data.frame with response times
 probe_mirrors_concurrent <- function(mirrors, timeout = 3) {
   if (requireNamespace("curl", quietly = TRUE)) {
     probe_mirrors_curl_multi(mirrors, timeout)
   } else {
-    # fallback: 顺序探测（慢）
+    # Fallback to slower sequential probing.
     times <- vapply(mirrors, probe_mirror_response_time,
                     numeric(1), timeout = timeout, USE.NAMES = FALSE)
     data.frame(URL = mirrors, response_time = times, stringsAsFactors = FALSE)
   }
 }
 
-#' 并发下载候选镜像的 index.html 进行真实测速
-#' @param candidates 带 URL 列的 data.frame
-#' @param timeout 超时秒数
-#' @return 新增 download_time 列的 data.frame
+#' Verify candidate mirrors by concurrently downloading index.html
+#' @param candidates data.frame with a URL column
+#' @param timeout Timeout in seconds
+#' @return data.frame with an added download_time column
 verify_candidates_concurrent <- function(candidates, timeout = 5) {
   if (nrow(candidates) == 0) return(candidates)
 
@@ -191,12 +205,12 @@ verify_candidates_concurrent <- function(candidates, timeout = 5) {
   candidates
 }
 
-# ── CRAN 镜像选择 ─────────────────────────────────────────────────────────
+# ── CRAN Mirror Selection ──────────────────────────────────────────────────
 
-#' 从镜像列表中获取最快的 N 个镜像
-#' @param mirrors data.frame，需含 URL 列
-#' @param top_n 返回前 N 个
-#' @return 最快的镜像 URL
+#' Select the fastest mirror from the mirror list
+#' @param mirrors data.frame containing a URL column
+#' @param top_n Number of fastest mirrors to verify
+#' @return Fastest mirror URL
 get_fastest_mirror <- function(mirrors, top_n = 10) {
   urls <- mirrors$URL
 
@@ -222,17 +236,19 @@ get_fastest_mirror <- function(mirrors, top_n = 10) {
   candidates$URL[1]
 }
 
-#' 探测并返回最快的 CRAN 镜像 URL
+#' Probe and return the fastest CRAN mirror URL
 #'
-#' 使用两步探测法：
-#' 1. 对所有 CRAN 镜像并发 HEAD 请求，取响应最快的 top 10
-#' 2. 对 top 10 做真实下载测速，选最快的
+#' Uses a two-step probing strategy:
+#' 1. Send concurrent HEAD requests to all CRAN mirrors and keep the top 10.
+#' 2. Verify the top candidates with real download timing and select the fastest.
 #'
-#' 结果缓存 24 小时。
+#' Results are cached for 24 hours.
 #'
-#' @return 最快镜像的 URL 字符串
+#' @param refresh_mirrors If TRUE, try to refresh the CRAN mirror list before
+#'   probing. By default, the local CRAN mirror list bundled with R is used.
+#' @return Fastest mirror URL string
 #' @export
-detect_fastest_mirror <- function() {
+detect_fastest_mirror <- function(refresh_mirrors = FALSE) {
   if (is_cache_valid()) {
     cached <- read_cache()
     if (!is.null(cached$mirror_url)) {
@@ -242,12 +258,12 @@ detect_fastest_mirror <- function() {
   }
 
   message("Probing CRAN mirrors to find the fastest one...")
-  mirrors <- get_mirror_list()
+  mirrors <- get_mirror_list(refresh = refresh_mirrors)
   message("Found ", nrow(mirrors), " CRAN mirrors")
   fastest <- get_fastest_mirror(mirrors, top_n = 10)
   message("Fastest mirror selected: ", fastest)
 
-  # 更新缓存，保留已有的 bioc_mirror_url
+  # Update cache while preserving any existing Bioconductor mirror URL.
   cached <- read_cache()
   write_cache(list(
     mirror_url = fastest,
@@ -260,45 +276,42 @@ detect_fastest_mirror <- function() {
   fastest
 }
 
-# ── Bioconductor 镜像选择 ────────────────────────────────────────────────
+# ── Bioconductor Mirror Selection ─────────────────────────────────────────
 
-#' 探测并返回最快的 Bioconductor 镜像 URL
+#' Probe and return the fastest Bioconductor mirror URL
 #'
-#' 对所有已知 Bioc 镜像做并发 HEAD 请求，选响应最快的。
-#' 注意：探测的是版本特定路径（packages/{version}/bioc/），
-#' 而非镜像根路径。这样不兼容当前 Bioc 版本的镜像会返回 404 被自动排除。
-#' 结果与 CRAN 镜像一起缓存 24 小时。
+#' Sends concurrent HEAD requests to all known Bioconductor mirrors and selects
+#' the fastest compatible mirror. The probe uses a version-specific path
+#' (packages/{version}/bioc/) rather than the mirror root, so mirrors that do not
+#' support the current Bioconductor version return 404 and are excluded.
+#' Results are cached together with the CRAN mirror for 24 hours.
 #'
-#' @return 最快 Bioc 镜像的 URL 字符串（末尾无斜线）
+#' @return Fastest Bioconductor mirror URL string without a trailing slash
 #' @export
 detect_fastest_bioc_mirror <- function() {
+  bioc_version <- get_current_bioc_version()
+
   if (is_cache_valid()) {
     cached <- read_cache()
-    if (!is.null(cached$bioc_mirror_url)) {
+    if (!is.null(cached$bioc_mirror_url) &&
+        identical(cached$bioc_version, bioc_version)) {
       message("Using cached Bioc mirror: ", cached$bioc_mirror_url)
       return(cached$bioc_mirror_url)
     }
   }
 
   message("Probing Bioconductor mirrors to find the fastest one...")
-  mirrors <- get_bioc_mirror_list()
+  mirrors <- unique(c(get_bioc_mirror_list(), official_bioc_mirror))
   message("Found ", length(mirrors), " Bioc mirrors")
 
-  # 获取当前 Bioc 版本，构造版本特定探测 URL
-  # 这样不支持当前 Bioc 版本的镜像会返回 404，不会被选上
-  bioc_version <- if (requireNamespace("BiocManager", quietly = TRUE)) {
-    as.character(BiocManager::version())
-  } else {
-    "3.19"  # fallback：如果没装 BiocManager，用常见版本
-  }
-
-  # 构造版本特定的探测 URL：{mirror}/packages/{version}/bioc/src/contrib/PACKAGES.gz
-  # 注意：不能用目录路径（如 .../bioc/），因为目录存在不代表里面的 PACKAGES 文件存在
+  # Build version-specific probe URLs:
+  # {mirror}/packages/{version}/bioc/src/contrib/PACKAGES.gz.
+  # Directory paths are not enough because they may exist without PACKAGES files.
   probe_urls <- file.path(gsub("/$", "", mirrors),
                           "packages", bioc_version, "bioc",
                           "src", "contrib", "PACKAGES.gz")
 
-  # 单步探测（Bioc 镜像少，无需下载验证）
+  # Single-step probing is enough because the Bioconductor mirror list is small.
   probe_results <- if (length(probe_urls) > 0) {
     probe_mirrors_concurrent(probe_urls)
   } else {
@@ -309,37 +322,38 @@ detect_fastest_bioc_mirror <- function() {
   probe_results <- probe_results[is.finite(probe_results$response_time), ]
   probe_results <- probe_results[order(probe_results$response_time), ]
 
-  # 统计被跳过的镜像（版本不兼容）
+  # Count mirrors skipped because they do not support the current Bioc version.
   all_count <- length(mirrors)
   compatible_count <- nrow(probe_results)
   skipped <- all_count - compatible_count
 
   if (compatible_count == 0) {
     stop("No Bioconductor mirror supports Bioc version ", bioc_version, ". ",
-         "Your BiocManager may be too old. Please upgrade:\n",
-         "  install.packages(\"BiocManager\")")
+         "Your Bioconductor release may be too old. Please upgrade:\n",
+         "  BiocManager::install(version = \"latest\")")
   }
 
-  # 从版本特定 PACKAGES.gz URL 还原为镜像根 URL
+  # Restore the mirror root URL from the version-specific PACKAGES.gz URL.
   fastest <- sub("/packages/[^/]+/bioc/src/contrib/PACKAGES\\.gz$", "",
                  probe_results$URL[1])
 
-  # 如果部分镜像因版本不兼容被跳过，提示用户
+  # Warn when some mirrors were skipped due to version incompatibility.
   if (skipped > 0) {
     warning(skipped, " of ", all_count, " Bioconductor mirrors do not support ",
             "Bioc version ", bioc_version, ". ",
-	    "Selected: ", fastest, ". ",
+            "Selected: ", fastest, ". ",
             "A faster mirror may be available after upgrading:\n",
-            "  install.packages(\"BiocManager\")")
+            "  BiocManager::install(version = \"latest\")")
   }
 
   message("Fastest Bioc mirror selected: ", fastest)
 
-  # 更新缓存，保留已有的 mirror_url
+  # Update cache while preserving any existing CRAN mirror URL.
   cached <- read_cache()
   write_cache(list(
     mirror_url = cached$mirror_url %||% NULL,
     bioc_mirror_url = fastest,
+    bioc_version = bioc_version,
     timestamp = Sys.time(),
     all_mirrors_tested = cached$all_mirrors_tested %||% 0,
     candidate_count = cached$candidate_count %||% 0
@@ -348,6 +362,6 @@ detect_fastest_bioc_mirror <- function() {
   fastest
 }
 
-# ── 兼容函数 ──────────────────────────────────────────────────────────────
+# ── Compatibility Helpers ─────────────────────────────────────────────────
 
 `%||%` <- function(x, y) if (is.null(x)) y else x

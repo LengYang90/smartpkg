@@ -1,9 +1,10 @@
-#' 检测 R 包的来源类型
+#' Detect the source type of an R package
 #'
-#' 自动识别包的来源：CRAN、Bioconductor、GitHub、本地或未知。
+#' Automatically identifies whether a package comes from CRAN, Bioconductor,
+#' GitHub, a local path, or an unknown source.
 #'
-#' @param pkg 包名字符串
-#' @return list，包含 source, pkg 及其他来源特定字段
+#' @param pkg Package name string
+#' @return list containing source, pkg, and source-specific fields
 #' @export
 detect_pkg_source <- function(pkg) {
   if (is.null(pkg) || is.na(pkg) || nchar(trimws(pkg)) == 0) {
@@ -12,7 +13,7 @@ detect_pkg_source <- function(pkg) {
 
   pkg <- trimws(pkg)
 
-  # 检查显式命名空间
+  # Check explicit namespace prefixes.
   if (grepl("::", pkg, fixed = TRUE)) {
     parts <- strsplit(pkg, "::", fixed = TRUE)[[1]]
     namespace <- tolower(trimws(parts[1]))
@@ -29,28 +30,28 @@ detect_pkg_source <- function(pkg) {
     }
   }
 
-  # 检查本地路径（.tar.gz 结尾或存在目录/文件）
+  # Check local paths, either .tar.gz archives or existing files/directories.
   if (grepl("\\.tar\\.gz$", pkg) || file.exists(pkg)) {
     return(list(source = "local", pkg = pkg))
   }
 
-  # 检查 GitHub 格式 (username/repo)
+  # Check GitHub shorthand format (username/repo).
   if (grepl("^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", pkg)) {
     return(parse_github(pkg))
   }
 
-  # 是本地路径但不存在文件，判断为 GitHub（有点模糊，但本地路径存在文件已在上面检查了）
+  # Treat path-like strings that do not exist as local paths.
   if (grepl("/", pkg, fixed = TRUE)) {
-    # 可能是路径不存在的本地包
+    # This may be a local package path that has not been created yet.
     return(list(source = "local", pkg = pkg))
   }
 
-  # 纯包名 → 默认走 CRAN
+  # Plain package names default to CRAN.
   list(source = "cran", pkg = pkg)
 }
 
-#' 解析 GitHub 包标识
-#' @param pkg username/repo 格式
+#' Parse a GitHub package identifier
+#' @param pkg username/repo format
 #' @return list
 parse_github <- function(pkg) {
   parts <- strsplit(pkg, "/", fixed = TRUE)[[1]]

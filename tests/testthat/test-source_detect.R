@@ -4,7 +4,7 @@ test_that("detect_pkg_source identifies CRAN packages", {
   expect_equal(result$pkg, "dplyr")
   expect_null(result$repo)
 
-  # CRAN 命名空间
+  # CRAN namespace.
   result <- detect_pkg_source("CRAN::dplyr")
   expect_equal(result$source, "cran")
   expect_equal(result$pkg, "dplyr")
@@ -15,7 +15,7 @@ test_that("detect_pkg_source identifies Bioconductor packages", {
   expect_equal(result$source, "bioc")
   expect_equal(result$pkg, "limma")
 
-  # 不区分大小写
+  # Namespace matching is case-insensitive.
   result <- detect_pkg_source("bioc::limma")
   expect_equal(result$source, "bioc")
   expect_equal(result$pkg, "limma")
@@ -28,7 +28,7 @@ test_that("detect_pkg_source identifies GitHub packages", {
   expect_equal(result$username, "tidyverse")
   expect_equal(result$repo, "dplyr")
 
-  # GitHub 命名空间
+  # GitHub namespace.
   result <- detect_pkg_source("GitHub::tidyverse/dplyr")
   expect_equal(result$source, "github")
   expect_equal(result$pkg, "tidyverse/dplyr")
@@ -44,13 +44,13 @@ test_that("detect_pkg_source identifies local packages", {
 })
 
 test_that("detect_pkg_source handles edge cases", {
-  # 空字符串
+  # Empty string.
   expect_error(detect_pkg_source(""), "Package name is empty")
 
   # NA
   expect_error(detect_pkg_source(NA), "Package name is empty")
 
-  # 无效格式
+  # Invalid format.
   result <- detect_pkg_source("some::thing::else")
   expect_equal(result$source, "unknown")
 })

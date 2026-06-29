@@ -1,9 +1,9 @@
 test_that("write_cache and read_cache roundtrip correctly", {
-  # 清理可能存在的缓存
-  cache_path <- file.path("~/.R", "smartpkg_mirror_cache")
-  if (file.exists(cache_path)) file.remove(cache_path)
+  # Remove any existing cache.
+  path <- cache_path()
+  if (file.exists(path)) file.remove(path)
 
-  # 写入缓存
+  # Write cache data.
   result <- list(
     mirror_url = "https://cran.example.com",
     timestamp = Sys.time(),
@@ -12,11 +12,44 @@ test_that("write_cache and read_cache roundtrip correctly", {
   )
   write_cache(result)
 
-  # 读取缓存
+  # Read cache data.
   cached <- read_cache()
   expect_equal(cached$mirror_url, "https://cran.example.com")
   expect_true("timestamp" %in% names(cached))
-  expect_true(file.exists(cache_path))
+  expect_true(file.exists(path))
+})
+
+test_that("cache_path uses the R user cache directory", {
+  old <- Sys.getenv("SMARTPKG_CACHE_DIR", unset = NA)
+  on.exit({
+    if (is.na(old)) {
+      Sys.unsetenv("SMARTPKG_CACHE_DIR")
+    } else {
+      Sys.setenv(SMARTPKG_CACHE_DIR = old)
+    }
+  }, add = TRUE)
+  Sys.unsetenv("SMARTPKG_CACHE_DIR")
+
+  expect_equal(
+    cache_path(),
+    file.path(tools::R_user_dir("smartpkg", "cache"), "mirror_cache.rds")
+  )
+})
+
+test_that("cache_path can be isolated with SMARTPKG_CACHE_DIR", {
+  old <- Sys.getenv("SMARTPKG_CACHE_DIR", unset = NA)
+  on.exit({
+    if (is.na(old)) {
+      Sys.unsetenv("SMARTPKG_CACHE_DIR")
+    } else {
+      Sys.setenv(SMARTPKG_CACHE_DIR = old)
+    }
+  }, add = TRUE)
+
+  test_dir <- tempfile("smartpkg-cache-")
+  Sys.setenv(SMARTPKG_CACHE_DIR = test_dir)
+
+  expect_equal(cache_path(), file.path(test_dir, "mirror_cache.rds"))
 })
 
 test_that("is_cache_valid returns TRUE for fresh cache", {
@@ -32,7 +65,7 @@ test_that("is_cache_valid returns TRUE for fresh cache", {
 test_that("is_cache_valid returns FALSE for expired cache", {
   write_cache(list(
     mirror_url = "https://cran.example.com",
-    timestamp = Sys.time() - 86401,  # 24小时 + 1秒前
+    timestamp = Sys.time() - 86401,  # 24 hours plus 1 second ago
     all_mirrors_tested = 10,
     candidate_count = 3
   ))
@@ -40,23 +73,22 @@ test_that("is_cache_valid returns FALSE for expired cache", {
 })
 
 test_that("is_cache_valid returns FALSE when no cache exists", {
-  cache_path <- file.path("~/.R", "smartpkg_mirror_cache")
-  if (file.exists(cache_path)) file.remove(cache_path)
+  path <- cache_path()
+  if (file.exists(path)) file.remove(path)
   expect_false(is_cache_valid())
 })
 
 test_that("refresh_mirror_cache clears cache and returns FALSE for valid check", {
-  # 先写入一个缓存
+  # Write a cache entry first.
   write_cache(list(
     mirror_url = "https://cran.example.com",
     timestamp = Sys.time(),
     all_mirrors_tested = 10,
     candidate_count = 3
   ))
-  # 清除它
+  # Clear it.
   refresh_mirror_cache()
-  # 缓存文件应该被删除
-  cache_path <- file.path("~/.R", "smartpkg_mirror_cache")
-  expect_false(file.exists(cache_path))
+  # The cache file should be removed.
+  expect_false(file.exists(cache_path()))
   expect_false(is_cache_valid())
 })

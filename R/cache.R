@@ -1,23 +1,23 @@
-#' 缓存文件路径
+#' Cache file path
 cache_path <- function() {
-  dir <- file.path(Sys.getenv("HOME", unset = "~"), ".R")
+  dir <- Sys.getenv("SMARTPKG_CACHE_DIR", unset = tools::R_user_dir("smartpkg", "cache"))
   if (!dir.exists(dir)) {
     dir.create(dir, recursive = TRUE, showWarnings = FALSE)
   }
-  file.path(dir, "smartpkg_mirror_cache")
+  file.path(dir, "mirror_cache.rds")
 }
 
-#' 缓存有效期（秒）
-CACHE_TTL <- 86400  # 24 小时
+#' Cache time-to-live in seconds
+CACHE_TTL <- 86400  # 24 hours
 
-#' 写入镜像缓存
-#' @param mirror_data list，包含 mirror_url, timestamp, all_mirrors_tested, candidate_count
+#' Write mirror cache data
+#' @param mirror_data list containing mirror_url, timestamp, all_mirrors_tested, candidate_count
 write_cache <- function(mirror_data) {
   saveRDS(mirror_data, file = cache_path())
 }
 
-#' 读取镜像缓存
-#' @return list 或 NULL（无缓存时）
+#' Read mirror cache data
+#' @return list, or NULL when no cache exists
 read_cache <- function() {
   path <- cache_path()
   if (file.exists(path)) {
@@ -27,7 +27,7 @@ read_cache <- function() {
   }
 }
 
-#' 检查缓存是否有效
+#' Check whether the cache is still valid
 #' @return logical
 is_cache_valid <- function() {
   cached <- read_cache()
@@ -37,7 +37,7 @@ is_cache_valid <- function() {
   as.numeric(elapsed) < CACHE_TTL
 }
 
-#' 手动刷新缓存（删除缓存文件）
+#' Manually refresh the cache by deleting the cache file
 #' @export
 refresh_mirror_cache <- function() {
   path <- cache_path()

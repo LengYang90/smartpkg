@@ -22,10 +22,10 @@ smart_install("ggplot2", dependencies = TRUE)
 Bioconductor 包——纯包名即可，自动识别并路由：
 
 ```r
-smart_install("limma")             # 自动：CRAN 找不到 → 走 Bioc
-smart_install("clusterProfiler")   # 自动：CRAN 找不到 → 走 Bioc
-smart_install("org.Hs.eg.db")     # 自动：CRAN 找不到 → 走 Bioc
-smart_install("Bioc::limma")       # 显式指定走 Bioc
+smart_install("limma")             # Automatic: CRAN miss -> Bioc
+smart_install("clusterProfiler")   # Automatic: CRAN miss -> Bioc
+smart_install("org.Hs.eg.db")      # Automatic: CRAN miss -> Bioc
+smart_install("Bioc::limma")       # Explicitly use Bioc
 ```
 
 GitHub 包——直接写 `username/repo`：

@@ -11,7 +11,7 @@ refresh_mirror_cache()
 }
 \value{
 Invisibly returns \code{NULL}. Called for its side effect of clearing
-the cache file at \verb{~/.R/smartpkg_mirror_cache}.
+the cache file under \code{tools::R_user_dir("smartpkg", "cache")}.
 }
 \examples{
 \dontrun{

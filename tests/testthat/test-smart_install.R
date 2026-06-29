@@ -1,4 +1,16 @@
+seed_smart_install_cache <- function() {
+  write_cache(list(
+    mirror_url = "https://cran.example.com",
+    bioc_mirror_url = "https://bioc.example.com",
+    bioc_version = get_current_bioc_version(),
+    timestamp = Sys.time(),
+    all_mirrors_tested = 3,
+    candidate_count = 1
+  ))
+}
+
 test_that("smart_install routes CRAN packages correctly", {
+  seed_smart_install_cache()
   result <- smart_install("dplyr", dry_run = TRUE)
   expect_equal(result$source, "cran")
   expect_equal(result$pkg, "dplyr")
@@ -7,6 +19,7 @@ test_that("smart_install routes CRAN packages correctly", {
 })
 
 test_that("smart_install routes Bioconductor packages correctly", {
+  seed_smart_install_cache()
   result <- smart_install("Bioc::limma", dry_run = TRUE)
   expect_equal(result$source, "bioc")
   expect_equal(result$pkg, "limma")
@@ -38,7 +51,42 @@ test_that("smart_install gives error for unknown packages", {
 })
 
 test_that("smart_install passes extra arguments to backend", {
+  seed_smart_install_cache()
   result <- smart_install("dplyr", dry_run = TRUE, quiet = TRUE, dependencies = TRUE)
   expect_equal(result$args$quiet, TRUE)
   expect_equal(result$args$dependencies, TRUE)
+})
+
+test_that("warm_package_cache retries Bioc preload after a previous Bioc failure", {
+  .smartpkg_cache$warmed <- NULL
+  .smartpkg_cache$cran_warmed <- NULL
+  .smartpkg_cache$bioc_warmed <- NULL
+  .smartpkg_cache$cran_pkgs <- NULL
+  .smartpkg_cache$bioc_pkgs <- NULL
+
+  calls <- 0
+  local_mocked_bindings(
+    detect_fastest_bioc_mirror = function() {
+      calls <<- calls + 1
+      if (calls == 1) stop("temporary Bioc failure")
+      "https://bioc.example.com"
+    },
+    detect_fastest_mirror = function() "https://cran.example.com"
+  )
+  local_mocked_bindings(
+    available.packages = function(contriburl, ...) {
+      matrix(character(0), nrow = 0, dimnames = list(character(0), "Package"))
+    },
+    .package = "utils"
+  )
+  local_mocked_bindings(
+    repositories = function(...) c(BioCsoft = "https://bioc.example.com/packages/3.23/bioc"),
+    .package = "BiocManager"
+  )
+
+  warm_package_cache("https://cran.example.com")
+  warm_package_cache("https://cran.example.com")
+
+  expect_equal(calls, 2)
+  expect_true(isTRUE(.smartpkg_cache$bioc_warmed))
 })
