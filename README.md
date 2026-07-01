@@ -28,6 +28,14 @@ smart_install("org.Hs.eg.db")      # Automatic: CRAN miss -> Bioc
 smart_install("Bioc::limma")       # Explicitly use Bioc
 ```
 
+Bioconductor 安装默认使用非交互模式，避免批量安装时停在
+`Update all/some/none? [a/s/n]`：
+
+```r
+smart_install("limma")             # ask = FALSE, update = FALSE by default
+smart_install("limma", ask = TRUE) # Still allowed when you want prompts
+```
+
 GitHub 包——直接写 `username/repo`：
 
 ```r
@@ -52,6 +60,7 @@ smart_install("./mypkg_1.0.tar.gz")
 后续安装直接走缓存镜像，无需重复探测。你也可以随时手动刷新缓存：
 
 ```r
+smart_cache_info()
 refresh_mirror_cache()
 ```
 

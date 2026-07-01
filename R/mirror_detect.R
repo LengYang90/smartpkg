@@ -9,8 +9,8 @@ get_mirror_list <- function(refresh = FALSE) {
   tryCatch(
     utils::getCRANmirrors(all = TRUE, local.only = FALSE),
     error = function(e) {
-      warning("Unable to fetch remote CRAN mirror list; using local copy. ",
-              conditionMessage(e), call. = FALSE)
+      smartpkg_warning("Unable to fetch remote CRAN mirror list; using local copy. ",
+                       conditionMessage(e), call. = FALSE)
       utils::getCRANmirrors(all = TRUE, local.only = TRUE)
     }
   )
@@ -252,16 +252,16 @@ detect_fastest_mirror <- function(refresh_mirrors = FALSE) {
   if (is_cache_valid()) {
     cached <- read_cache()
     if (!is.null(cached$mirror_url)) {
-      message("Using cached mirror: ", cached$mirror_url)
+      smartpkg_message("Using cached mirror: ", cached$mirror_url)
       return(cached$mirror_url)
     }
   }
 
-  message("Probing CRAN mirrors to find the fastest one...")
+  smartpkg_message("Probing CRAN mirrors to find the fastest one...")
   mirrors <- get_mirror_list(refresh = refresh_mirrors)
-  message("Found ", nrow(mirrors), " CRAN mirrors")
+  smartpkg_message("Found ", nrow(mirrors), " CRAN mirrors")
   fastest <- get_fastest_mirror(mirrors, top_n = 10)
-  message("Fastest mirror selected: ", fastest)
+  smartpkg_message("Fastest mirror selected: ", fastest)
 
   # Update cache while preserving any existing Bioconductor mirror URL.
   cached <- read_cache()
@@ -295,14 +295,14 @@ detect_fastest_bioc_mirror <- function() {
     cached <- read_cache()
     if (!is.null(cached$bioc_mirror_url) &&
         identical(cached$bioc_version, bioc_version)) {
-      message("Using cached Bioc mirror: ", cached$bioc_mirror_url)
+      smartpkg_message("Using cached Bioc mirror: ", cached$bioc_mirror_url)
       return(cached$bioc_mirror_url)
     }
   }
 
-  message("Probing Bioconductor mirrors to find the fastest one...")
+  smartpkg_message("Probing Bioconductor mirrors to find the fastest one...")
   mirrors <- unique(c(get_bioc_mirror_list(), official_bioc_mirror))
-  message("Found ", length(mirrors), " Bioc mirrors")
+  smartpkg_message("Found ", length(mirrors), " Bioc mirrors")
 
   # Build version-specific probe URLs:
   # {mirror}/packages/{version}/bioc/src/contrib/PACKAGES.gz.
@@ -339,14 +339,15 @@ detect_fastest_bioc_mirror <- function() {
 
   # Warn when some mirrors were skipped due to version incompatibility.
   if (skipped > 0) {
-    warning(skipped, " of ", all_count, " Bioconductor mirrors do not support ",
-            "Bioc version ", bioc_version, ". ",
-            "Selected: ", fastest, ". ",
-            "A faster mirror may be available after upgrading:\n",
-            "  BiocManager::install(version = \"latest\")")
+    smartpkg_warning(skipped, " of ", all_count,
+                     " Bioconductor mirrors do not support ",
+                     "Bioc version ", bioc_version, ". ",
+                     "Selected: ", fastest, ". ",
+                     "A faster mirror may be available after upgrading:\n",
+                     "  BiocManager::install(version = \"latest\")")
   }
 
-  message("Fastest Bioc mirror selected: ", fastest)
+  smartpkg_message("Fastest Bioc mirror selected: ", fastest)
 
   # Update cache while preserving any existing CRAN mirror URL.
   cached <- read_cache()

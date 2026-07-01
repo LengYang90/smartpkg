@@ -82,6 +82,35 @@ test_that("detect_fastest_mirror returns cached result when cache is valid", {
   expect_equal(result, "https://cached.example.com")
 })
 
+test_that("detect_fastest_mirror messages include a second-level timestamp", {
+  write_cache(list(
+    mirror_url = "https://cached.example.com",
+    timestamp = Sys.time(),
+    all_mirrors_tested = 10,
+    candidate_count = 3
+  ))
+
+  expect_message(
+    detect_fastest_mirror(),
+    "^\\[[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\\] Using cached mirror"
+  )
+})
+
+test_that("get_mirror_list refresh warning includes a second-level timestamp", {
+  local_mocked_bindings(
+    getCRANmirrors = function(all = TRUE, local.only = FALSE) {
+      if (!local.only) stop("remote mirror list unavailable")
+      data.frame(URL = "https://local.example.com", Country = "Local")
+    },
+    .package = "utils"
+  )
+
+  expect_warning(
+    get_mirror_list(refresh = TRUE),
+    "^\\[[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\\] Unable to fetch remote CRAN mirror list"
+  )
+})
+
 test_that("detect_fastest_mirror refreshes and caches when cache is expired", {
   skip_on_cran()
   # Clear the cache.

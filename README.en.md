@@ -28,6 +28,14 @@ smart_install("org.Hs.eg.db")     # auto: not on CRAN → installs from Bioc
 smart_install("Bioc::limma")       # explicit Bioc namespace
 ```
 
+Bioconductor installs are non-interactive by default, so batch installs do not
+stop at `Update all/some/none? [a/s/n]`:
+
+```r
+smart_install("limma")             # ask = FALSE, update = FALSE by default
+smart_install("limma", ask = TRUE) # Still allowed when you want prompts
+```
+
 **GitHub packages** — just use `username/repo`:
 
 ```r
@@ -52,6 +60,7 @@ On the first call, `smart_install()`:
 Subsequent calls use the cached mirrors instantly. You can also manually refresh at any time:
 
 ```r
+smart_cache_info()
 refresh_mirror_cache()
 ```
 

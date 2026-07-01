@@ -92,3 +92,64 @@ test_that("refresh_mirror_cache clears cache and returns FALSE for valid check",
   expect_false(file.exists(cache_path()))
   expect_false(is_cache_valid())
 })
+
+test_that("smart_cache_info reports an empty cache", {
+  path <- cache_path()
+  if (file.exists(path)) file.remove(path)
+
+  info <- smart_cache_info()
+
+  expect_s3_class(info, "data.frame")
+  expect_false(info$exists)
+  expect_equal(info$path, path)
+  expect_false(info$valid)
+  expect_true(is.na(info$mirror_url))
+  expect_true(is.na(info$bioc_mirror_url))
+})
+
+test_that("smart_cache_info reports cached mirror details", {
+  timestamp <- Sys.time() - 3600
+  write_cache(list(
+    mirror_url = "https://cran.example.com",
+    bioc_mirror_url = "https://bioc.example.com",
+    bioc_version = "3.23",
+    timestamp = timestamp,
+    all_mirrors_tested = 103,
+    candidate_count = 10
+  ))
+
+  info <- smart_cache_info()
+
+  expect_true(info$exists)
+  expect_true(info$valid)
+  expect_equal(info$mirror_url, "https://cran.example.com")
+  expect_equal(info$bioc_mirror_url, "https://bioc.example.com")
+  expect_equal(info$bioc_version, "3.23")
+  expect_equal(info$all_mirrors_tested, 103)
+  expect_equal(info$candidate_count, 10)
+  expect_equal(info$path, cache_path())
+  expect_true(info$age_seconds >= 0)
+})
+
+test_that("smart_cache_info prints a readable vertical summary", {
+  write_cache(list(
+    mirror_url = "https://cran.example.com",
+    bioc_mirror_url = "https://bioc.example.com",
+    bioc_version = "3.23",
+    timestamp = as.POSIXct("2026-06-30 16:10:29", tz = "UTC"),
+    all_mirrors_tested = 94,
+    candidate_count = 10
+  ))
+
+  info <- smart_cache_info()
+  output <- capture.output(print(info))
+
+  expect_s3_class(info, "data.frame")
+  expect_s3_class(info, "smartpkg_cache_info")
+  expect_true(any(grepl("^smartpkg mirror cache$", output)))
+  expect_true(any(grepl("^  Status:", output)))
+  expect_true(any(grepl("^  CRAN mirror:", output)))
+  expect_true(any(grepl("^  Bioc mirror:", output)))
+  expect_true(any(grepl("^  Cache path:", output)))
+  expect_false(any(grepl("^  exists\\s+valid", output)))
+})
