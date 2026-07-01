@@ -6,8 +6,8 @@ Description: Provides smart_install(), a unified installer for R packages from
     CRAN, Bioconductor, GitHub, and local archives. It detects package sources,
     selects responsive CRAN and Bioconductor mirrors, filters Bioconductor
     mirrors by release compatibility, caches mirror choices, and dispatches to
-    install.packages(), BiocManager::install(), or remotes::install_github() as
-    appropriate.
+    install.packages(), BiocManager::install(), remotes::install_github(), or
+    the optional pak::pkg_install() backend as appropriate.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Imports:
@@ -16,6 +16,7 @@ Imports:
 Suggests:
     curl,
     BiocManager,
+    pak,
     remotes,
     testthat (>= 3.0.0)
 NeedsCompilation: no

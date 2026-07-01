@@ -118,6 +118,63 @@ test_that("smart_install passes extra arguments to backend", {
   expect_equal(result$args$dependencies, TRUE)
 })
 
+test_that("smart_install supports a pak dry run plan", {
+  local_mocked_bindings(
+    detect_fastest_mirror = function(...) "https://cran.example.com",
+    detect_fastest_bioc_mirror = function(...) "https://bioc.example.com"
+  )
+
+  result <- smart_install(c("dplyr", "Bioc::limma", "tidyverse/ggplot2"),
+                          dry_run = TRUE, backend = "pak")
+
+  expect_equal(result$source, "mixed")
+  expect_equal(result$pkg, c("dplyr", "limma", "tidyverse/ggplot2"))
+  expect_equal(result$backend, "pak::pkg_install")
+  expect_equal(result$mirror, "https://cran.example.com")
+  expect_equal(result$bioc_mirror, "https://bioc.example.com")
+})
+
+test_that("smart_install errors clearly when pak backend is unavailable", {
+  local_mocked_bindings(
+    is_pak_available = function() FALSE,
+    detect_fastest_mirror = function(...) "https://cran.example.com",
+    detect_fastest_bioc_mirror = function(...) "https://bioc.example.com"
+  )
+
+  expect_error(
+    smart_install("dplyr", backend = "pak"),
+    "pak is required"
+  )
+})
+
+test_that("smart_install calls pak backend with selected repositories", {
+  captured <- NULL
+  local_mocked_bindings(
+    is_pak_available = function() TRUE,
+    detect_fastest_mirror = function(...) "https://cran.example.com",
+    detect_fastest_bioc_mirror = function(...) "https://bioc.example.com",
+    get_pak_repositories = function(cran_mirror, bioc_mirror) {
+      c(CRAN = cran_mirror,
+        BioCsoft = paste0(bioc_mirror, "/packages/3.23/bioc"))
+    },
+    pak_pkg_install = function(pkg, ...) {
+      captured <<- list(pkg = pkg, args = list(...), repos = getOption("repos"))
+      "installed"
+    }
+  )
+
+  result <- smart_install(c("dplyr", "Bioc::limma", "tidyverse/ggplot2"),
+                          backend = "pak", ask = FALSE)
+
+  expect_s3_class(result, "data.frame")
+  expect_equal(result$success, c(TRUE, TRUE, TRUE))
+  expect_equal(result$backend, rep("pak::pkg_install", 3))
+  expect_equal(captured$pkg, c("dplyr", "limma", "tidyverse/ggplot2"))
+  expect_false(captured$args$ask)
+  expect_equal(unname(captured$repos["CRAN"]), "https://cran.example.com")
+  expect_equal(unname(captured$repos["BioCsoft"]), "https://bioc.example.com/packages/3.23/bioc")
+})
+
 test_that("warm_package_cache retries Bioc preload after a previous Bioc failure", {
   .smartpkg_cache$warmed <- NULL
   .smartpkg_cache$cran_warmed <- NULL

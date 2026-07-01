@@ -19,15 +19,28 @@
 #' @param ... Extra arguments passed to the installation backend, such as
 #'   `quiet = TRUE` or `dependencies = TRUE`
 #' @param dry_run If TRUE, return the installation plan without installing.
+#' @param backend Installation backend. Use `"base"` for smartpkg's default
+#'   install.packages(), BiocManager, and remotes dispatch. Use `"pak"` to
+#'   install through pak::pkg_install() with smartpkg-selected mirrors.
 #' @return For a single package, the backend result or a plan list for dry_run.
 #'   For multiple packages, a data.frame summarizing success and failure.
 #' @export
-smart_install <- function(pkg, ..., dry_run = FALSE) {
-  if (!is.null(pkg) && length(pkg) > 1) {
-    return(smart_install_many(pkg, list(...), dry_run = dry_run))
+smart_install <- function(pkg, ..., dry_run = FALSE, backend = c("base", "pak")) {
+  backend <- match.arg(backend)
+  args <- list(...)
+
+  if (backend == "pak") {
+    if (!is.null(pkg) && length(pkg) > 1 && !dry_run) {
+      return(smart_install_many_pak(pkg, args))
+    }
+    return(install_pak(pkg, args, dry_run = dry_run))
   }
 
-  smart_install_one(pkg, list(...), dry_run = dry_run)
+  if (!is.null(pkg) && length(pkg) > 1) {
+    return(smart_install_many(pkg, args, dry_run = dry_run))
+  }
+
+  smart_install_one(pkg, args, dry_run = dry_run)
 }
 
 smart_install_one <- function(pkg, args, dry_run = FALSE, metadata_env = NULL) {
@@ -138,6 +151,34 @@ backend_for_source <- function(source) {
   )
 }
 
+smart_install_many_pak <- function(pkgs, args) {
+  metadata <- normalize_pak_packages(pkgs)
+  tryCatch({
+    install_pak(pkgs, args, dry_run = FALSE)
+    rows <- data.frame(
+      status = "\u2705",
+      pkg = pkgs,
+      success = TRUE,
+      source = metadata$source,
+      backend = "pak::pkg_install",
+      error = NA_character_,
+      stringsAsFactors = FALSE
+    )
+    smartpkg_message("\u2705 Installed ", length(pkgs), " package(s) with pak.")
+    rows
+  }, error = function(e) {
+    data.frame(
+      status = "\u274c",
+      pkg = pkgs,
+      success = FALSE,
+      source = metadata$source,
+      backend = "pak::pkg_install",
+      error = conditionMessage(e),
+      stringsAsFactors = FALSE
+    )
+  })
+}
+
 # ── Installation Backends ─────────────────────────────────────────────────
 
 #' Install a CRAN package
@@ -246,6 +287,85 @@ install_local <- function(pkg, args, dry_run) {
     list(pkgs = pkg, repos = NULL, type = "source"),
     args
   ))
+}
+
+#' Install packages with pak
+install_pak <- function(pkg, args, dry_run) {
+  metadata <- normalize_pak_packages(pkg)
+  cran_mirror <- detect_fastest_mirror()
+  bioc_mirror <- detect_fastest_bioc_mirror()
+  args <- add_pak_install_defaults(args)
+
+  if (dry_run) {
+    return(list(
+      source = if (length(unique(metadata$source)) == 1) metadata$source[1] else "mixed",
+      pkg = metadata$pkg,
+      mirror = cran_mirror,
+      bioc_mirror = bioc_mirror,
+      backend = "pak::pkg_install",
+      args = args
+    ))
+  }
+
+  if (!is_pak_available()) {
+    stop("pak is required for backend = 'pak'. ",
+         "Install it with: install.packages('pak')")
+  }
+
+  old_repos <- getOption("repos")
+  old_bioc_mirror <- getOption("BioC_mirror")
+  on.exit({
+    options(repos = old_repos)
+    options(BioC_mirror = old_bioc_mirror)
+  })
+
+  options(BioC_mirror = bioc_mirror)
+  options(repos = get_pak_repositories(cran_mirror, bioc_mirror))
+
+  do.call(pak_pkg_install, c(list(pkg = metadata$pkg), args))
+}
+
+normalize_pak_packages <- function(pkg) {
+  info <- lapply(pkg, detect_pkg_source)
+  sources <- vapply(info, `[[`, character(1), "source")
+  if (any(sources == "unknown")) {
+    stop("Unknown package source: ", pkg[which(sources == "unknown")[1]])
+  }
+
+  data.frame(
+    pkg = vapply(info, `[[`, character(1), "pkg"),
+    source = sources,
+    stringsAsFactors = FALSE
+  )
+}
+
+get_pak_repositories <- function(cran_mirror, bioc_mirror) {
+  if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    return(c(CRAN = cran_mirror))
+  }
+
+  old_bioc_mirror <- getOption("BioC_mirror")
+  on.exit(options(BioC_mirror = old_bioc_mirror))
+
+  options(BioC_mirror = bioc_mirror)
+  repos <- suppress_biocmanager_repository_messages(BiocManager::repositories())
+  repos["CRAN"] <- cran_mirror
+  repos
+}
+
+add_pak_install_defaults <- function(args) {
+  if (is.null(args$ask)) {
+    args$ask <- FALSE
+  }
+  args
+}
+
+is_pak_available <- function() {
+  requireNamespace("pak", quietly = TRUE)
+}
+
+pak_pkg_install <- function(pkg, ...) {
+  pak::pkg_install(pkg, ...)
 }
 
 # ── Package Index Preloading ──────────────────────────────────────────────

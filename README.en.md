@@ -49,6 +49,13 @@ smart_install("GitHub::tidyverse/dplyr")
 smart_install("./mypkg_1.0.tar.gz")
 ```
 
+**Fast backend** — if `pak` is installed, use it for faster dependency
+resolution, downloads, and batch installation:
+
+```r
+smart_install(c("dplyr", "limma", "tidyverse/ggplot2"), backend = "pak")
+```
+
 ## How It Works
 
 On the first call, `smart_install()`:
